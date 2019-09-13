@@ -1,7 +1,6 @@
-import sys
 import numpy as np
-from scipy.linalg import eig
 import matplotlib.pyplot as plt
+from src.cfr import CFR
 
 
 def fd(energy, ef, temp):
@@ -20,47 +19,6 @@ def fd(energy, ef, temp):
 
 def t_order_frac(x):
     return 0.5 * (np.sign(x) + 1.0) / x
-
-
-def approximant(energy, poles, residues):
-    arg = np.array(energy)
-    ans = np.zeros(arg.shape) + 0.5
-
-    for j in range(len(poles)):
-        if poles[j] > 0:
-            ans = ans - residues[j] / (arg - 1j / poles[j]) - residues[j] / (arg + 1j / poles[j])
-
-    return ans
-
-
-def approximant_diff(energy, poles, residues):
-    arg = np.array(energy)
-    ans = np.zeros(arg.shape) + 0.5 * 0
-
-    for j in range(len(poles)):
-        if poles[j] > 0:
-            ans = ans - residues[j] / (arg - 1j / poles[j]) ** 2 - residues[j] / (arg + 1j / poles[j]) ** 2
-
-    return ans
-
-
-def poles_and_residues(cutoff=50):
-    """
-    Compute positions of poles and their residuals for the Fermi-Dirac function
-
-    :param cutoff:   cutoff energy
-    :return:
-    """
-
-    b_mat = [1 / (2.0 * np.sqrt((2 * (j + 1) - 1) * (2 * (j + 1) + 1))) for j in range(0, cutoff - 1)]
-    b_mat = np.matrix(np.diag(b_mat, -1)) + np.matrix(np.diag(b_mat, 1))
-
-    poles, residues = eig(b_mat)
-
-    residues = np.array(np.matrix(residues))
-    residues = 0.25 * np.array([np.abs(residues[0, j]) ** 2 / (poles[j] ** 2) for j in range(residues.shape[0])])
-
-    return poles, residues
 
 
 def poles_and_residues_cutoff_50():
@@ -106,6 +64,9 @@ def poles_and_residues_cutoff_50():
     return poles, residues
 
 
+
+
+
 def test_gf1(z=1j * 1e-3):
     return t_order_frac(z + 10.0) + \
            t_order_frac(z + 5.0) + \
@@ -120,32 +81,35 @@ def test_gf(z=1j * 1e-3):
            1.0 / (z - 5.0)
 
 
-def integrate(gf=test_gf, ef=0, tempr=300, cutoff=70, t_ordered=False):
-    """
+def test_itegrate():
+    fd = CFR(100)
+    Ef = np.linspace(-12, 12, 150)
+    ans = []
 
-    :param test_gf:
-    :param Ef:
-    :param tempr:
-    :param cutoff:
-    :return:
-    """
+    for ef in Ef:
+        ans.append(fd.integrate(test_gf, ef=ef, tempr=600, t_ordered=False))
 
-    if t_ordered:
-        zero_moment = 0
-    else:
-        R = 1.0e10
-        zero_moment = 1j * R * gf(1j * R)
+    return np.array(ans)
 
-    ans = 0
-    betha = 1.0 / (8.617333262145e-5 * tempr)
-    a1, b1 = poles_and_residues(cutoff=cutoff)
 
-    for j in range(len(a1)):
-        if np.real(a1[j]) > 0:
-            aaa = ef + 1j / a1[j] / betha
-            ans = ans + 4 * 1j / betha * gf(aaa) * b1[j]
+def test_itegrate1():
+    tempr = 600
+    # fd_poles_coords, fd_poles = poles_and_residues(cutoff=40)
+    # fd_poles_coords, fd_poles = poles_and_residues_cutoff_50()
+    fd = CFR(50)
+    fd_poles_coords, fd_poles = fd.fd_poles_coords, fd.fd_poles
 
-    return np.real(zero_moment + np.imag(ans))
+    Ef = np.linspace(-12, 12, 150)
+    ans = []
+    R = 1.0e10
+    moment = 1j * R * test_gf(1j * R)
+
+    for ef in Ef:
+        points = fd.genetate_integration_points(ef, tempr)
+        gf_vals = test_gf(points)
+        ans.append(fd.integrate1(gf_vals, tempr, zero_moment=moment))
+
+    return np.array(ans)
 
 
 def bf_integration(Ef, tempr, gf=test_gf):
@@ -159,70 +123,23 @@ def bf_integration(Ef, tempr, gf=test_gf):
     return -2 / np.pi * ans
 
 
-def genetate_inetgration_points(ef, tempr, fd_poles_coords):
-    ans = []
-    betha = 1.0 / (8.617333262145e-5 * tempr)
+def approximant(energy, poles, residues):
+    arg = np.array(energy)
+    ans = np.zeros(arg.shape) + 0.5
 
-    for j in range(len(fd_poles_coords)):
-        ans.append(ef + 1j / fd_poles_coords[j] / betha)
+    for j in range(len(poles)):
+        if poles[j] > 0:
+            ans = ans - residues[j] / (arg - 1j / poles[j]) - residues[j] / (arg + 1j / poles[j])
 
-    return np.array(ans)
-
-
-def integrate1(gf_vals, fd_poles_coords, fd_poles, tempr, zero_moment=0):
-    """
-
-    :param test_gf:
-    :param Ef:
-    :param tempr:
-    :param cutoff:
-    :return:
-    """
-
-    ans = 0
-    betha = 1.0 / (8.617333262145e-5 * tempr)
-
-    for j in range(len(fd_poles_coords)):
-        if np.real(fd_poles_coords[j]) > 0:
-            ans = ans + 4 * 1j / betha * gf_vals[j] * fd_poles[j]
-
-    return np.real(zero_moment + np.imag(ans))
-
-
-def test_itegrate():
-    Ef = np.linspace(-12, 12, 150)
-    ans = []
-
-    for ef in Ef:
-        ans.append(integrate(gf=test_gf, ef=ef, tempr=600, cutoff=100, t_ordered=False))
-
-    return np.array(ans)
-
-
-def test_itegrate1():
-    tempr = 600
-    # fd_poles_coords, fd_poles = poles_and_residues(cutoff=40)
-    fd_poles_coords, fd_poles = poles_and_residues_cutoff_50()
-
-    Ef = np.linspace(-12, 12, 150)
-    ans = []
-    R = 1.0e10
-    moment = 1j * R * test_gf(1j * R)
-
-    for ef in Ef:
-        points = genetate_inetgration_points(ef, tempr, fd_poles_coords)
-        gf_vals = test_gf(points)
-        ans.append(integrate1(gf_vals, fd_poles_coords, fd_poles, tempr, zero_moment=moment))
-
-    return np.array(ans)
+    return ans
 
 
 def test_approximation():
-    a1, b1 = poles_and_residues(cutoff=2)
-    a2, b2 = poles_and_residues(cutoff=10)
-    a3, b3 = poles_and_residues(cutoff=30)
-    a4, b4 = poles_and_residues(cutoff=50)
-    a5, b5 = poles_and_residues(cutoff=100)
+    a1, b1 = CFR(2).get_poles_and_residues()
+    a2, b2 = CFR(10).get_poles_and_residues()
+    a3, b3 = CFR(30).get_poles_and_residues()
+    a4, b4 = CFR(50).get_poles_and_residues()
+    a5, b5 = CFR(100).get_poles_and_residues()
 
     energy = np.linspace(-5.7, 5.7, 3000)
 
@@ -241,26 +158,13 @@ def test_approximation():
     return fd0, ans1, ans2, ans3, ans4, ans5
 
 
-def tabulate(poles_coords, poles, cutoff):
-
-    def func():
-        return poles_coords, poles
-
-    setattr(sys.modules[__name__], "poles_and_residues_cutoff_" + str(cutoff), func)
-
-
 if __name__ == '__main__':
-
-    a1, b1 = poles_and_residues(cutoff=150)
-    tabulate(a1, b1, 150)
-    print(poles_and_residues_cutoff_150())
-
     fd0, ans1, ans2, ans3, ans4, ans5 = test_approximation()
 
     ans6 = test_itegrate()
     ans7 = test_itegrate1()
 
-    gf = test_gf(np.linspace(-12, 12, 150) + 1e-2*1j)
+    gf_array = test_gf(np.linspace(-12, 12, 150) + 1e-2 * 1j)
 
     fig, ax = plt.subplots(3)
     ax[0].plot(fd0)
@@ -270,7 +174,7 @@ if __name__ == '__main__':
     ax[0].plot(ans4)
     ax[0].plot(ans5)
 
-    ax[1].plot(gf)
+    ax[1].plot(gf_array)
 
     ax[2].plot(ans6)
     ax[2].plot(ans7)
